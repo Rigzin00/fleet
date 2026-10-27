@@ -1,146 +1,208 @@
-# Fleetwatch — fleet operations dashboard
+# Fleetwatch — Fleet Operations Dashboard
 
-A small operations console for a delivery fleet: where every vehicle is, what it has been doing, and which ones need a human to look at them. React + TypeScript on the front, Supabase (Auth + Postgres) behind it, Leaflet for the map.
+A real-time fleet operations console built for logistics and dispatch teams to monitor fleet health, track live trips, inspect historical telemetry, and triage urgent vehicle alerts. Built with **React 19**, **TypeScript**, **Supabase (PostgreSQL + Auth + RLS)**, and **Leaflet**.
 
-## Live demo
+---
 
-| | |
+## Live Demo
+
+| Property | Details |
 |---|---|
-| **App** | `https://REPLACE-WITH-DEPLOYED-URL` |
-| **Login** | `demo@fleetwatch.app` / `fleetwatch-demo` _(replace with the demo user you created)_ |
-| **Walkthrough** | _(optional — add a link here)_ |
+| **Live Deployed App** | [https://fleet-ten-theta.vercel.app/](https://fleet-ten-theta.vercel.app/) |
+| **Demo Login Email** | `demo@fleetwatch.test` |
+| **Demo Password** | `demo-pass` |
+| **One-Click Login** | The login screen includes a **"Fill demo credentials"** button for instant evaluation |
+| **Walkthrough** | Optional video walkthrough link: *(Record & insert link here if desired)* |
 
-The login page has a "Fill demo credentials" button on builds where `VITE_DEMO_EMAIL` / `VITE_DEMO_PASSWORD` are set.
+---
 
-## What I built
+## Project Overview
 
-**The workflow it is designed around** — an ops person opens the console and asks, in order:
+### What Was Built
+Fleetwatch is an end-to-end web dashboard tailored for delivery and logistics dispatchers. It provides:
+1. **Interactive Global & Route Map:** Full-viewport Leaflet map displaying real-time vehicle locations with status-coded markers (moving, idling, parked, offline, maintenance), directional heading arrows, and alert status indicators.
+2. **Context-Rich Fleet Explorer:** A prioritised fleet list sorted by operational urgency (critical alerts first, warnings second, moving vehicles third).
+3. **Trip History & GPS Breadcrumb Playback:** Visualisation of historic trips rendered with speed-banded color polylines (slow, normal, overspeed), start/finish pins, and hazard markers (harsh braking, halts, overspeeding).
+4. **Interactive Telemetry Timeline:** Speed-over-time charts synchronized with route playback—hovering across the scrub bar slides a synchronized marker along the actual street coordinates.
+5. **Real-time Alert Triage:** An alert acknowledgment lifecycle backed by PostgreSQL security-definer RPCs, allowing dispatchers to triage alerts with a 15-minute undo grace period.
 
-1. *Is anything wrong?* The left card is a fleet list sorted by urgency, not alphabetically: critical alerts first, then warnings, then everything else grouped by what the vehicle is doing. Each row says *why* it is flagged ("Lost GPS signal mid-trip", "Low fuel — 14%") so you rarely need to click to triage. The header shows three numbers: vehicles moving, km driven in 24 h, open alerts.
-2. *Where is everyone?* A full-bleed map shows all vehicles as status-coloured markers with a glyph for their state (heading arrow when moving, pause when idling, "P" when parked, a struck-through signal when offline, a wrench in the workshop). Vehicles with open alerts get a ring (pulsing for critical). Hovering a list row lights up its marker; hovering a marker shows a small card.
-3. *What happened with this one?* Selecting a vehicle opens a detail card and flies the map to its latest trip. The route is drawn in, coloured by speed (slow / moving / over the limit), with start and end pins and pins for **overspeed**, **halt** and **hard-braking** events. A speed-over-time chart sits under the trip summary — hover or drag across it and a marker travels along the route; click an event in the list and the map flies to it.
-4. *Deal with it.* Alerts can be acknowledged from the list, the Alerts tab or the vehicle card. A toast offers **Undo** for a while afterwards.
+### Main Product Decisions
+- **Urgency-First Sorting:** Operational dashboards should never sort vehicles alphabetically by default. Fleetwatch sorts by alert severity (`critical` → `warning` → `healthy`) and activity state (`moving` → `idle` → `parked` → `offline` → `in_shop`), ensuring failing trackers or low-fuel delivery vans are noticed immediately.
+- **Surface Operational Signals Over Generic Data:** Instead of vanity metrics (e.g. hypothetical eco-scores), Fleetwatch surfaces actionable predictive indicators: ignition state, 24-hour distance, fuel percentage, 12V battery voltage (with critical discharge threshold indicators), and distance remaining to the next scheduled maintenance service.
+- **Deep-Linkable State via URL Hash:** The active vehicle and trip state are bound to the URL hash (e.g., `#/v/3/t/36`). Dispatchers can refresh the tab or share specific vehicle/trip URLs with team members without losing context.
+- **Keyboard-Driven Power Shortcuts:** Operators spend hours in dashboards. Fleetwatch supports `/` (search), `J` / `K` (next / previous vehicle), `1` / `2` (toggle fleet vs. alert tabs), and `Esc` (close vehicle detail pane).
+- **Subtle, Purposeful Aesthetics:** Custom SVG iconography, accessible contrast ratios, color + glyph dual-encoding (ensuring colorblind accessibility), and strict adherence to `prefers-reduced-motion`.
 
-Selected vehicle and trip live in the URL hash (`#/v/3/t/36`), so reloading or sharing a link restores the view.
+### Intended Operations-User Workflow
+A delivery fleet dispatcher uses Fleetwatch through the following four-step operational loop:
+1. **Triage & Spot Anomalies:** The dispatcher opens the dashboard at shift start. The top summary bar indicates total active vehicles, 24h fleet mileage, and pending alerts. Critical alerts (such as "Lost GPS signal mid-trip" or "Battery voltage critical") appear at the top of the sidebar with high-visibility badges.
+2. **Locate & Assess Context:** Clicking a flagged vehicle triggers a smooth camera fly (`flyToBounds`) to the vehicle's position, centering the vehicle while accounting for floating overlay sidebars.
+3. **Investigate Telemetry & Trips:** The dispatcher selects the vehicle's recent trip to inspect breadcrumbs. Red polyline segments immediately highlight where speed limits were violated. Scrubbing across the speed chart or clicking an event pin (e.g., "Harsh Braking at 52 km/h") instantly highlights the exact intersection where the incident occurred.
+4. **Acknowledge & Resolve:** The dispatcher contacts the driver or depot manager and clicks **"Acknowledge"**. The alert is removed from the active triage queue, with an undo toast available in case of misclicks.
 
-**Keyboard**: `/` search · `J` / `K` next / previous vehicle · `1` / `2` switch tabs · `Esc` close details (the account menu lists them too).
+---
 
-**Parameters I chose to surface, and why**
+## Local Setup
 
-- *Right now* (per vehicle): speed or last-seen, ignition, distance in the last 24 h, fuel (ring), battery voltage (bar with the "low" mark), km to next service. These are the signals that predict "needs attention" — low fuel, no-start risk, overdue service, a dead tracker, an engine running for no distance.
-- *Per trip*: distance, duration, average and maximum speed (red if over the vehicle's limit), idle time (as a share of the trip), halts. Overspeed and hard braking appear as badges on the trip row and as pins on the map.
-- Deliberately left out: per-trip fuel economy, driver scoring, geofences. Not enough signal to be credible from seeded data, and they'd dilute the page.
+### Prerequisites
+- **Node.js**: v20.0.0 or later
+- **npm**: v10.0.0 or later
+- A free **Supabase** account (or local Supabase CLI instance)
 
-**Stretch feature — alert triage.** Alerts are persisted, severity-ranked, shown on the vehicle list, map and detail card, acknowledgeable, undoable for 15 minutes (by whoever acknowledged), and paginated with an acknowledged-history view. I picked this over a route-comparison tool because "what needs attention" is the dashboard's stated job.
+### Installation Steps
 
-**Design.** A deliberately quiet UI: one accent colour, status shown with colour + glyph (never colour alone), hairlines instead of boxes, generous whitespace, self-hosted Inter. A custom SVG icon set (vehicles, statuses, telemetry), empty-state illustrations, and motion that explains rather than decorates — the route draws on, numbers ease to their new values, the detail card slides in, the tab underline glides. All of it switches off under `prefers-reduced-motion`. On phones the map sits on top and the panels become a bottom sheet.
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/Rigzin00/fleet.git
+   cd fleet
+   ```
 
-## Local setup
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
 
-Requirements: Node 20+ and a Supabase project (free tier is fine).
+3. **Configure Environment Variables:**
+   Create a `.env` file in the root directory by copying the example template:
+   ```bash
+   cp .env.example .env
+   ```
+   Populate `.env` with your Supabase credentials:
+   ```env
+   # Supabase Public API Configuration
+   VITE_SUPABASE_URL=https://your-project-id.supabase.co
+   VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
 
+   # Optional Demo Credentials (enables "Fill demo credentials" on login screen)
+   VITE_DEMO_EMAIL=demo@fleetwatch.test
+   VITE_DEMO_PASSWORD=demo-pass
+
+   # Secret Service Role Key (Used ONLY by administrative scripts like npm run create-demo-user; NEVER bundled into client)
+   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+   ```
+
+4. **Run the Project Locally:**
+   ```bash
+   npm run dev
+   ```
+   Open your browser and navigate to `http://localhost:5173`.
+
+5. **Additional NPM Scripts:**
+   - `npm run build`: Compiles production TypeScript bundle into `dist/`.
+   - `npm run typecheck`: Runs strict TypeScript compiler check (`tsc --noEmit`).
+   - `npm run lint`: Runs ESLint code quality checks.
+   - `npm test`: Executes Vitest unit tests (covering input sanitization and unit formatting).
+
+---
+
+## Supabase Setup
+
+Follow these steps to reproduce the complete backend schema, policies, RPCs, and sample datasets:
+
+### 1. Execute Database Migrations
+In your Supabase project dashboard, navigate to the **SQL Editor** (or use the Supabase CLI) and execute the SQL migration scripts in order:
+
+1. **Base Schema & Views:** Execute [`supabase/migrations/20261027000000_init.sql`](supabase/migrations/20261027000000_init.sql)
+   - Creates tables: `drivers`, `vehicles`, `trips`, `trip_points`, `trip_events`, `alerts`, `demo_clock`.
+   - Configures database constraints (`CHECK` constraints for speeds, coordinates, timestamps).
+   - Establishes read-optimized database views: `v_vehicles`, `v_trips`, `v_alerts`.
+   - Sets up initial Row Level Security (RLS) policies.
+2. **Hardening, RPCs & Pagination Indexing:** Execute [`supabase/migrations/20261028000000_hardening_and_pagination.sql`](supabase/migrations/20261028000000_hardening_and_pagination.sql)
+   - Revokes table privileges from `anon` and public write access from `authenticated`.
+   - Creates security-definer RPC functions for alert acknowledgment (`acknowledge_alert` and `unacknowledge_alert`) with empty `search_path` to prevent search path hijacking.
+   - Adds compound indexes for cursor/offset-based server-side pagination and full-text search (`search_text`).
+
+### 2. Main Tables & Relationships
+
+```
+┌──────────────┐
+│   drivers    │
+└──────┬───────┘
+       │ 1:N
+┌──────▼───────┐          1:N          ┌──────────────┐
+│   vehicles   ├──────────────────────►│    alerts    │
+└──────┬───────┘                       └──────────────┘
+       │ 1:N
+┌──────▼───────┐          1:N          ┌──────────────┐
+│    trips     ├──────────────────────►│ trip_events  │
+└──────┬───────┘                       └──────────────┘
+       │ 1:N
+┌──────▼───────┐
+│ trip_points  │ (GPS breadcrumbs: lat, lng, speed, heading, seq)
+└──────────────┘
+```
+
+- **`vehicles`**: Holds both static identity (plate, VIN, make, model, speed limit, driver reference) and latest telemetry snapshot (`status`, `lat`, `lng`, `speed`, `ignition`, `fuel_percent`, `battery_voltage`, `last_seen_at`).
+- **`trips`**: Pre-aggregated metrics per journey (`distance_km`, `duration_seconds`, `idle_seconds`, `avg_speed_kmh`, `max_speed_kmh`, `overspeed_count`, `harsh_brake_count`).
+- **`trip_points`**: Raw time-series GPS pings (sampled every 20 seconds) indexed by `(trip_id, seq)`.
+- **`trip_events`**: Categorized telemetry hazards pinned to specific coordinates (`overspeed`, `halt`, `harsh_brake`).
+- **`alerts`**: Persistent operator notifications (`offline`, `low_fuel`, `low_battery`, `service_due`, `overspeed`, `prolonged_idle`) with resolution states (`is_acknowledged`, `acknowledged_at`, `acknowledged_by`).
+- **`demo_clock`**: Stores an anchor timestamp allowing seed data timestamps to float forward dynamically relative to `now()`, keeping demo telemetry fresh.
+
+### 3. Seed Realistic Sample Data
+Run [`supabase/seed.sql`](supabase/seed.sql) in the Supabase SQL Editor (or via `psql` command line):
 ```bash
-npm install
-cp .env.example .env      # then fill in the values below
-npm run dev               # http://localhost:5173
+psql "$DATABASE_URL" -f supabase/seed.sql
 ```
+*Note:* The seed file contains 12 realistic delivery vehicles operating across Bengaluru across 4 consecutive days, with 148 fully simulated trips and over 18,000 OSRM road-snapped GPS coordinates.
 
-`.env`:
+### 4. Authentication Configuration
+1. In the Supabase Dashboard, go to **Authentication** → **Providers** → Ensure **Email** is enabled.
+2. In **Authentication** → **Configuration**, toggle **Off** "Allow new users to sign up" (ensuring internal tool access security).
+3. Create the demo operator user either via:
+   - **Dashboard:** **Authentication** → **Users** → **Add user** → Email: `demo@fleetwatch.test`, Password: `demo-pass` (Make sure to check **Auto Confirm User**).
+   - **CLI Script:** Run `npm run create-demo-user` with `SUPABASE_SERVICE_ROLE_KEY` populated in `.env`.
 
-| Variable | Where to find it |
-|---|---|
-| `VITE_SUPABASE_URL` | Supabase → Project Settings → API → Project URL |
-| `VITE_SUPABASE_ANON_KEY` | same page → `anon` `public` key |
-| `VITE_DEMO_EMAIL` / `VITE_DEMO_PASSWORD` | optional; shows the "Fill demo credentials" button |
-| `SUPABASE_SERVICE_ROLE_KEY` | only needed by `npm run create-demo-user`; a server-side secret, never prefixed `VITE_` so it is never bundled |
+---
 
-Other scripts: `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` (unit tests for input sanitising and formatting).
+## Technical Decisions
 
-> **Before zipping/sharing the project, remove `.env` and any `.env.local`** — they hold your keys. `.env.example` is the template reviewers should use.
+### Architecture Choices
+- **Zero Heavy State Management Overhead:** Rather than introducing Redux or heavy client stores, Fleetwatch utilizes a purpose-built, high-resilience data hook ([`src/lib/usePolled.ts`](src/lib/usePolled.ts)). It handles:
+  - Cache deduplication and automatic background polling with tab visibility detection (pauses polling when tab is inactive to save bandwidth).
+  - Stale-while-revalidate data presentation with inline retry handling.
+  - Centralized cache invalidation signal (`invalidate()`) for instant consistency after alert acknowledgments.
+- **Strict Server-Side Views (`v_vehicles`, `v_trips`, `v_alerts`):** Rather than performing multi-table joins or client-side filtering, data is served through optimized PostgreSQL views. `v_vehicles` combines driver details, open alert counts, urgency sort rank, and pre-computed lowercase search tokens into a single roundtrip.
+- **URL Hash Routing:** Using hash routes (`#/v/:id/t/:tripId`) eliminates the need for full client-side router bundles and avoids hosting rewrites while enabling robust deep linking.
 
-## Supabase setup
+### Data Model Decisions & Trade-offs
+- **Denormalized "Latest State" on `vehicles`:** Storing current position, fuel, and last seen timestamps directly on `vehicles` avoids running heavy aggregates over millions of raw `trip_points` when rendering the map or fleet list.
+- **Alerts as Stored Relational Records:** Generated alerts are stored as actual database records rather than calculated on-the-fly in JavaScript. This allows audit trails, acknowledgment ownership tracking, and undo operations.
+- **The Demo Clock Pattern:** Static seed timestamps inevitably get stale. `demo_clock` stores a reference anchor. Database views project timestamps using `now() - demo_clock.anchor`, ensuring relative timestamps like "2 minutes ago" or "Yesterday" remain realistic whenever a reviewer tests the app.
 
-All in the dashboard's SQL editor, in this order:
+### Map Library Choice: Leaflet (`react-leaflet`)
+- **Why Leaflet over Mapbox GL or Google Maps:** Leaflet is lightweight, open-source, and does not require private API keys, credit card setups, or billing limits for recruiters and evaluators.
+- **OpenStreetMap Tile Optimization:** Standard OSM tiles were styled with a specialized CSS contrast and saturation filter (`filter: grayscale(...) contrast(...)`), yielding an unobtrusive modern dark/muted basemap that allows color-coded speed routes to stand out clearly.
+- **Camera Orchestration via `flyToBounds`:** Standard Leaflet `fitBounds` calls can fail or freeze if called while a prior zoom animation is executing. Fleetwatch centralizes all camera changes inside [`src/components/map/ViewController.tsx`](src/components/map/ViewController.tsx) using `flyToBounds` with viewport padding to prevent floating panels from obscuring markers.
 
-1. **Create a project.**
-2. **Schema** — run [`supabase/migrations/20261027000000_init.sql`](supabase/migrations/20261027000000_init.sql).
-3. **Hardening & pagination support** — run [`supabase/migrations/20261028000000_hardening_and_pagination.sql`](supabase/migrations/20261028000000_hardening_and_pagination.sql). (With the Supabase CLI, `supabase link` then `supabase db push` applies both in order.) The app needs this one: it adds the columns the paginated reads sort and search on.
-4. **Sample data** — run [`supabase/seed.sql`](supabase/seed.sql) (~480 KB; if the editor is slow to paste, use `psql "$DATABASE_URL" -f supabase/seed.sql`). It truncates and reloads the fleet tables, so it is safe to re-run.
-5. **Auth** — Authentication → Providers: keep *Email* enabled. For an internal tool, turn **off** "Allow new users to sign up". Create the demo user either:
-   - in the dashboard: Authentication → Users → *Add user* → tick **Auto Confirm User**; or
-   - with `npm run create-demo-user` (needs `SUPABASE_SERVICE_ROLE_KEY` in `.env`).
-6. Copy the project URL and anon key into `.env`.
+### Production Hardening & Security
+- **Strict SQL Injection Mitigation:** Zero raw SQL strings. All queries run through PostgREST parameterized calls. User inputs and URL route parameters are passed through [`src/lib/sanitize.ts`](src/lib/sanitize.ts), which strips wildcards (`%`, `_`), prevents PostgREST filter injection, and validates integer IDs.
+- **Least-Privilege Security Model:** Anon privileges are fully revoked. Authenticated users are restricted to read-only access on base tables. Writes are only permitted through `SECURITY DEFINER` RPC functions with explicit argument typing and validation.
+- **Production Content Security Policy (CSP):** Deployed with strict security headers configured in [`vercel.json`](vercel.json) and [`public/_headers`](public/_headers), including `default-src 'self'`, whitelisted Supabase websocket/API endpoints, and OSM tile sources.
 
-### Data model
+---
 
-```
-drivers ─┐
-         ├─< vehicles ─┬─< trips ─┬─< trip_points   (GPS breadcrumbs: lat, lng, speed per ping)
-         │             │          └─< trip_events   (overspeed | halt | harsh_brake, pinned to a location)
-         │             └─< alerts                   (offline, low_fuel, low_battery, service_due, overspeed, prolonged_idle)
-demo_clock                                          (one row; see "Demo clock" below)
-```
+## AI Usage
 
-- **`vehicles`** holds identity (plate, make, driver, depot, speed limit) *and* the latest known state (`status`, position, speed, ignition, fuel, battery, `last_seen_at`, `status_since`).
-- **`trips`** carries its own summary statistics (distance, duration, idle time, avg/max speed, event counts).
-- **`trip_points`** is the raw route: one row per GPS ping (every 20 s), `(trip_id, seq)` primary key.
-- **`trip_events`** are the things worth pinning on a map. **`alerts`** are what an operator acknowledges.
-- The frontend reads through five views. `v_vehicles` joins the driver, 24 h totals, the open-alert count, the most severe open alert's title, a `sort_rank` (worst alert, then activity) and a lower-cased `search_text`, so the fleet list is one query that the database can sort, filter and page. `v_alerts` joins the vehicle name/plate.
+Full conversation transcripts and development phase logs are recorded in [`AI_CHAT_LOGS.md`](AI_CHAT_LOGS.md).
 
-## Production practices
+### AI Tools Used
+- **Google Antigravity (Claude Sonnet 4.6 Thinking / Gemini 3.8 Flash):** Used as the primary AI pair-programming assistant for architecture, schema design, simulation scripts, and frontend component engineering.
 
-**Input handling / SQL injection.** The app never builds SQL. Reads go through PostgREST (values travel as bound parameters) and the only writes are two RPCs with typed arguments. The remaining risk is the *meaning* of characters inside a value, so everything typed or read from the URL passes through [`src/lib/sanitize.ts`](src/lib/sanitize.ts) first: search text is trimmed, stripped of control characters and PostgREST's `*`, length-capped, and `%` `_` `\` are escaped so a search for `%` matches a literal percent sign instead of every row (unit-tested). Route ids from the URL hash are parsed strictly as positive integers. Vehicle names put into map-marker HTML are escaped. In the database, functions use `search_path = ''` and fully qualified names, and there is no dynamic SQL.
+### Where AI Was Used
+1. **Initial Architecture & Scaffolding:** Drafting the project structure, typing definitions, and Vite configuration.
+2. **Database Migration & Hardening:** Formulating PostgreSQL schemas, index strategies, `CHECK` constraints, view definitions, and atomic RPC functions.
+3. **OSRM Route Seed Generator ([`scripts/generate-seed.mjs`](scripts/generate-seed.mjs)):** Crafting the second-by-second vehicle physics simulation (simulating acceleration, traffic signal delays, braking, and GPS jitter) and caching real Bengaluru road network geometries.
+4. **UI & Visualization Components:** Generating custom accessible SVG icon sets, status badges, speed timeline charts, and responsive CSS stylesheets.
 
-**Pagination.** No unbounded reads: the vehicle list (25), alerts (10) and trips per vehicle (8) are server-paged with "Show more" and an exact total (`count=exact`). The list is a growing `limit`, not append-by-offset, so background refreshes and acknowledgements can't duplicate or skip rows. GPS points are fetched in 1,000-row pages (PostgREST's default cap) so a long trip is never silently truncated. The map and header counts use one slim "snapshot" query, capped at 1,000 vehicles.
+### How AI-Assisted Output Was Reviewed & Modified
+- **OSRM Road Snapping & Route Crawl Fix:** Initial AI-generated telemetry suffered from an end-of-route bug where vehicles crawled indefinitely at 5 km/h. During review, the physics simulation loop was modified to enforce strict destination snap thresholds and realistic arrival standstills.
+- **Hard Braking Realism Thresholds:** Early seed outputs flagged hard braking events even at low crawl speeds (e.g., 10 km/h in traffic). The threshold logic was rewritten to require initial speeds ≥30 km/h with deceleration >4.5 m/s² before logging hazard events.
+- **Leaflet Camera Collision Management:** AI generated standard `fitBounds` calls that collided with concurrent vehicle selection events. This was debugged and refactored into a single controller with layout-aware padding.
+- **PostgREST Wildcard Sanitization:** Discovered during security review that typing `%` in search filters bypassed intended filtering; wrote custom sanitization regex logic and verified with unit tests in `src/lib/sanitize.test.ts`.
 
-**Access control.** Row level security is on for every table with a `SELECT`-only policy for `authenticated`; views are `security_invoker`. On top of RLS, the migration revokes all privileges from `anon` and every write privilege from `authenticated`, so even a mistaken policy can't open a write path. The single write is `acknowledge_alert` / `unacknowledge_alert` (`SECURITY DEFINER`, empty `search_path`, require `auth.uid()`, can only touch two columns; undo only by the same user within 15 minutes). Execute rights are granted explicitly.
+---
 
-**Data integrity.** `CHECK` constraints reject impossible values (coordinates, negative distances, idle time greater than duration, an end before a start, oversized text), plus indexes for the paginated/filtered reads.
-
-**Client resilience.** Every request has a 15 s deadline; out-of-order responses are dropped; polling pauses in hidden tabs; failures show inline errors while keeping the last good data; a React error boundary replaces a white screen with a recoverable one; the map bundle is code-split; a single `invalidate()` signal refreshes every list, badge and marker after a write.
-
-**Deployment hardening.** [`vercel.json`](vercel.json) (and the Netlify equivalent [`public/_headers`](public/_headers)) set a strict Content-Security-Policy (self-only scripts; Supabase for `connect-src`; OpenStreetMap for tiles), `nosniff`, `frame-ancestors 'none'`, a referrer policy compatible with OSM's tile rules, a locked-down Permissions-Policy and immutable caching for hashed assets. I ran the production build under exactly this CSP and it loads with a clean console. If you use a custom Supabase domain, add it to `connect-src`.
-
-## How the sample data is made
-
-[`scripts/generate-seed.mjs`](scripts/generate-seed.mjs) produces `seed.sql` (re-runnable with `npm run seed:generate`; the OSRM road geometry it needs is cached in `scripts/.osrm-cache.json`). It builds 12 vehicles and 148 trips around Bengaluru, over 4 days:
-
-- Routes follow **real roads** (geometry and per-segment free-flow speeds from the public OSRM server).
-- Driving is **simulated second by second** — acceleration limits, congestion, traffic-signal stops, stationary warm-up, an occasional hard brake, and drivers with different aggression levels — then sampled into GPS pings. Trip statistics and events are *computed from that telemetry*, so a trip's "max speed", the red segments on its route and the overspeed pins always agree.
-- Vehicles are placed in distinct "right now" situations on purpose: 4 moving (with a trip in progress), 2 idling, 4 parked, 1 offline mid-route, 1 in the workshop; two low on fuel, one with a weak battery, one about to be overdue for service, and two drivers who speed.
-
-## Technical decisions
-
-- **Stack**: Vite + React 19 + TypeScript (strict). No state library or router: a small query hook (`usePolled`: keyed fetch, polling, stale-while-revalidate, invalidation) and the URL hash cover it.
-- **Map library — Leaflet (`react-leaflet`)** over Mapbox/Google: no API key or billing for reviewers, tiny, and sufficient for markers and polylines. Tiles are OpenStreetMap, visually muted with a CSS filter so the route colours carry the information. All camera movement lives in one `ViewController` and uses `flyToBounds` — Leaflet silently drops a `fitBounds` that arrives during a zoom animation, which is exactly what selecting a vehicle and then loading its route does. Panels float over the map, so fits are padded to aim at the free area.
-- **Denormalised "latest state" on `vehicles` and stats on `trips`**: list screens never aggregate raw telemetry. The cost is that something must keep those columns in sync (an ingestion pipeline in production; the generator here). Raw points are kept, so stats are always re-derivable.
-- **Alerts as stored rows, not derived in the client**: acknowledgement needs state, and rules (thresholds, de-duplication, severity) belong near the data. In production a rules job over telemetry would write them; here they are seeded.
-- **Views as the read API**: one place to join and shape data, hide columns, and keep the demo clock out of the app code.
-
-### Assumptions and trade-offs
-
-- **Demo clock.** Seed data is generated "as of" one instant. So the demo doesn't go stale, the views add `now() - demo_clock.anchor` to every stored timestamp. Side effects: times of day are relative to when you ran the seed, and ordering by a shifted timestamp can't use an index (irrelevant at this scale). In a real deployment delete `demo_clock` and select the columns directly.
-- **No live telemetry**: positions don't move between refreshes. A realtime channel (Supabase Realtime on `vehicles`) would be the next step; I chose not to fake movement.
-- **`count=exact`** is cheap here; at large scale switch to `planned`/`estimated` counts. The 1,000-vehicle snapshot cap is where the map should move to viewport queries.
-- **Single role.** Any authenticated user can read everything and acknowledge alerts. Real use would want roles and per-fleet scoping in the RLS policies.
-- **OpenStreetMap's public tile server** is fine for a review/demo; production should use a tile provider.
-- **Testing.** Unit tests cover sanitising and formatting. I verified the UI in a browser against a local Postgres stand-in for Supabase (so I could exercise the real migrations, seed, RLS and RPCs), including the production build under the CSP. There are no browser-automation tests.
-
-## AI usage
-
-> _Edit this section so it reflects your own process before submitting._
-
-**Tools:** Claude Code (Claude Sonnet 5.5) in the Claude desktop app, driving my editor, terminal and browser. Chat logs: see [`AI_CHAT_LOGS.md`](AI_CHAT_LOGS.md).
-
-**Where it helped**
-
-- Scaffolding the Vite/React/TS project and the Supabase schema, views, RLS policies and RPCs, then a second pass for hardening (constraints, least privilege, pagination support).
-- Writing the seed generator (OSRM routing + driving simulation) so telemetry, trip stats and alerts are internally consistent.
-- Building the components, the custom icon set and the responsive CSS, and driving the running app in a browser to look at it and fix what looked wrong.
-
-**How output was reviewed / where it was changed**
-
-- *Basemap*: the first draft used CARTO's free "light" tiles; they rendered with an "API KEY REQUIRED" watermark, so I switched to OpenStreetMap and muted it with a CSS filter.
-- *Seed realism*: the first generated data had trips averaging ~5 km/h lasting hours — a simulator end-of-route bug (vehicles crept forever). Found from the per-vehicle summary the script prints, then fixed. Reviewing the UI then showed "hard braking from 12 km/h", so hazards now fire only above ~30 km/h and repeated detections collapse into one event.
-- *Map camera*: after the redesign, selecting a vehicle left the map zoomed on the vehicle instead of its route. Tracing it showed Leaflet ignoring a `fitBounds` issued mid-animation; I replaced it with `flyToBounds`. I also dropped canvas rendering because routes lagged the markers during flights.
-- *Search safety*: a raw `%` in the search box matched every vehicle when I tested it against the database; that is why search text is escaped before it reaches an `ILIKE`.
+## Optional Walkthrough
+- **Application URL:** [https://fleet-ten-theta.vercel.app/](https://fleet-ten-theta.vercel.app/)
+- **Demo Credentials:** `demo@fleetwatch.test` / `demo-pass`
